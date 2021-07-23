@@ -16,7 +16,7 @@
                     <a href="">MentHaCOG</a>
                 </div>
             </div>
-            <a href=""><i class="fa fa-fw fa-envelope"></i> Contactos</a>
+            <a href="{% url 'contact' %}"><i class="fa fa-fw fa-envelope"></i> Contactos</a>
             <div class="top-right">
                 {% if user.is_authenticated %}
                     <div class="dropdown">
@@ -50,11 +50,11 @@
             </tr>
             {% for patient in testes %}
                 <tr>
-                    <td>{{ patient.name }}</td>
+                    <td style="text-transform: capitalize"><a href="{% url 'patientSummary' patient.id %}">{{ patient.name }}</a></td>
 
                     {% for testID in patient.doneTests %}
                         <td>
-                            <a href="{% url 'report' testID patient.id %}">
+                            <a href="{% url 'firstReportQuestion' testID patient.id %}">
                                 <p style="color: #4EB4BE">Relatório</p>
                             </a>
                         </td>
@@ -63,7 +63,7 @@
                     {% for testID in patient.nextTest %}
                         <td>
                             <a href="{% url 'fazPrimeiraPergunta' testID patient.id %}">
-                                <p style="color: green"> Iniciar Teste {{ testID }}</p>
+                                <p style="color: #4EB4BE"> Iniciar Teste {{ testID }}</p>
                             </a>
                         </td>
                     {% endfor %}

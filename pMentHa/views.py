@@ -86,6 +86,16 @@ def patientoverview(request):
         "testes": criaTabelaTestes()
     })
 
+def patient_summary(request, patientID):
+    age = 2021 - Patient.objects.get(pk=patientID).date.year
+    return render(request, "pMentHa/patient-summary.html", {
+        "patient": Patient.objects.get(pk=patientID),
+        "tests": Test.objects.all(),
+        "age": age,
+        "reports": Report.objects.all(),
+        "testes": criaTabelaTeste(patientID=patientID)
+    })
+
 
 def regPatient(request):
     if request.method == "POST":
@@ -115,89 +125,487 @@ def regPatient(request):
 
 def fazPergunta(request, resolutionID, questionID):
     if request.method == "POST":
-        quotation = 0
         answer = Answer.objects.filter(question=questionID, resolution=resolutionID)
         if answer:
             # apenas altera a resposta
+            answer = Answer.objects.get(question=questionID, resolution=resolutionID)
             answer.text = request.POST["resposta"]
             answer.save()
         else:
             answer = Answer.objects.create(
                 text=request.POST["resposta"],
-                quotation=quotation,
+                quotation=request.POST["quotation"],
                 question=Question.objects.get(pk=questionID),
                 resolution=Resolution.objects.get(pk=resolutionID),
             )
             answer.save()
         testID = Resolution.objects.get(pk=resolutionID).test.id
-        questionCount = len(QuestionOrder.objects.filter(test=testID))  # verse len funciona
+        questionCount = len(QuestionOrder.objects.filter(test=testID))
+        order = QuestionOrder.objects.get(test=testID, question=questionID).order
+
+        if order < questionCount:
+            question = QuestionOrder.objects.get(test=testID, order=order + 1).question
+        else:
+            # Teste Finalizado, regressar a tabela geral
+            patientID = Resolution.objects.get(pk=resolutionID).patient.id
+            addTest(testID, patientID)
+            return redirect('patientoverview')
+        answer = Answer.objects.filter(question=question.id, resolution=resolutionID)
+        options = Option.objects.filter(question=question.id)
+        if answer:
+            answer = Answer.objects.get(question=question.id, resolution=resolutionID).text
+            if question.multipla:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,  # permite identificar patient e test
+                        "options": options,
+                        "answer": int(answer),
+                        "order": order + 1,
+                        "image": question.cover,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,  # permite identificar patient e test
+                        "options": options,
+                        "answer": int(answer),
+                        "order": order + 1,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name
+                    })
+            else:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,  # permite identificar patient e test
+                        "order": order + 1,
+                        "answer": answer,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name,
+                        "image": question.cover
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,  # permite identificar patient e test
+                        "order": order + 1,
+                        "answer": answer,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name
+                    })
+
+        else:
+            if question.multipla:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,
+                        "options": options,
+                        "order": order + 1,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name,
+                        "image": question.cover
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,
+                        "options": options,
+                        "order": order + 1,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name,
+                    })
+            else:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,  # permite identificar patient e test
+                        "order": order + 1,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name,
+                        "image": question.cover
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolutionID,  # permite identificar patient e test
+                        "order": order + 1,
+                        "test": Resolution.objects.get(pk=resolutionID).test.name
+                    })
+
+
+def fazPrimeiraPergunta(request, testID, patientID):
+    """Esta função é chamada quando na tabela se inicia um teste """
+    question = QuestionOrder.objects.get(test=testID, order=1).question
+    options = Option.objects.filter(question=question.id)
+    patientInstance = Patient.objects.get(pk=patientID)
+    testInstance = Test.objects.get(pk=testID)
+    resolution = resolution_exists(patientInstance, testInstance)
+    if resolution:
+        answer = Answer.objects.filter(question=question.id,
+                                       resolution=Resolution.objects.get(test=testInstance, patient=patientInstance))
+        if answer:
+            answer = Answer.objects.get(question=question.id,
+                                        resolution=Resolution.objects.get(test=testInstance,
+                                                                          patient=patientInstance)).text
+            resolution = Resolution.objects.get(patient=patientInstance, test=testInstance)
+            if question.multipla:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,  # permite identificar patient e test
+                        "options": options,
+                        "answer": int(answer),
+                        "order": 1,
+                        "image": question.cover,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,  # permite identificar patient e test
+                        "options": options,
+                        "answer": int(answer),
+                        "order": 1,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name
+                    })
+            else:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,
+                        "order": 1,
+                        "answer": answer,
+                        "image": question.cover,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,
+                        "order": 1,
+                        "answer": answer,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name
+                    })
+        else:
+            resolution = Resolution.objects.get(patient=patientInstance, test=testInstance)
+            if question.multipla:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,
+                        "options": options,
+                        "order": 1,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name,
+                        "image": question.cover
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/multipla.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,
+                        "options": options,
+                        "order": 1,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name,
+                    })
+
+            else:
+                if question.cover:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,  # permite identificar patient e test
+                        "order": 1,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name,
+                        "image": question.cover
+                    })
+                else:
+                    return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                        "question": question,
+                        "min": question.min,
+                        "max": question.max,
+                        "resolutionID": resolution.id,  # permite identificar patient e test
+                        "order": 1,
+                        "test": Resolution.objects.get(pk=resolution.id).test.name,
+                    })
+
+    else:
+        resolution = Resolution.objects.create(test=testInstance, patient=patientInstance)
+        if question.multipla:
+            if question.cover:
+                return render(request, "pMentHa/perguntas/multipla.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolution.id,  # permite identificar patient e test
+                    "options": options,
+                    "order": 1,
+                    "image": question.cover,
+                    "test": resolution.test.name
+                })
+            else:
+                return render(request, "pMentHa/perguntas/multipla.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolution.id,  # permite identificar patient e test
+                    "options": options,
+                    "order": 1,
+                    "test": resolution.test.name
+                })
+        else:
+            if question.cover:
+                return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolution.id,  # permite identificar patient e test
+                    "order": 1,
+                    "image": question.cover,
+                    "test": resolution.test.name
+                })
+            else:
+                return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolution.id,  # permite identificar patient e test
+                    "order": 1,
+                    "test": resolution.test.name
+                })
+
+
+def firstReportQuestion(request, testID, patientID):
+    """Esta função é chamada quando na tabela se inicia um teste """
+    # Implementar o test.statement antes da primeira pergunta
+    question = QuestionOrder.objects.get(test=testID, order=1).question
+    options = Option.objects.filter(question=question.id)
+    patientInstance = Patient.objects.get(pk=patientID)
+    testInstance = Test.objects.get(pk=testID)
+    # alterar o if resolution
+    answer = Answer.objects.get(question=question.id,
+                                resolution=Resolution.objects.get(test=testInstance, patient=patientInstance)).text
+    resolution = Resolution.objects.get(patient=patientInstance, test=testInstance)
+    if question.multipla:
+        if question.cover:
+            return render(request, "pMentHa/perguntas/multipla-report.html", {
+                "question": question,
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolution.id,  # permite identificar patient e test
+                "options": options,
+                "answer": int(answer),
+                "order": 1,
+                "image": question.cover,
+                "test": Resolution.objects.get(pk=resolution.id).test.name,
+                "quotation": question.stimulus
+            })
+        else:
+            return render(request, "pMentHa/perguntas/multipla-report.html", {
+                "question": question,
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolution.id,  # permite identificar patient e test
+                "options": options,
+                "answer": int(answer),
+                "order": 1,
+                "test": Resolution.objects.get(pk=resolution.id).test.name,
+                "quotation": question.stimulus
+            })
+
+    else:
+        if question.cover:
+            return render(request, "pMentHa/perguntas/desenvolvimento-report.html", {
+                "question": question,
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolution.id,
+                "order": 1,
+                "image": question.cover,
+                "test": Resolution.objects.get(pk=resolution.id).test.name,
+                "answer": answer,
+                "quotation": question.stimulus
+            })
+        else:
+            return render(request, "pMentHa/perguntas/desenvolvimento-report.html", {
+                "question": question,
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolution.id,
+                "order": 1,
+                "test": Resolution.objects.get(pk=resolution.id).test.name,
+                "answer": answer,
+                "quotation": question.stimulus
+            })
+
+
+def reportnextQuestion(request, resolutionID, questionID):
+    if request.method == "POST":
+        quotation = 0
+        testID = Resolution.objects.get(pk=resolutionID).test.id
+        questionCount = len(QuestionOrder.objects.filter(test=testID))
         order = QuestionOrder.objects.get(test=testID, question=questionID).order
 
         if order < questionCount:  # se order não for a ultima...
             question = QuestionOrder.objects.get(test=testID, order=order + 1).question
         else:
             # Teste Finalizado, regressar a tabela geral
+            patientID = Resolution.objects.get(pk=resolutionID).patient.id
+            addTest(testID, patientID)
             return redirect('patientoverview')
         options = Option.objects.filter(question=question.id)
+        answer = Answer.objects.filter(question=question.id, resolution=resolutionID)
+        if answer:
+            answer = Answer.objects.get(question=question.id, resolution=resolutionID).text
         if question.multipla:
-            return render(request, "pMentHa/perguntas/multipla.html", {
-                "question": question,
-                "resolutionID": resolutionID,  # permite identificar patient e test
-                "options": options,
-                "order": order + 1
-            })
+            if question.cover:
+                return render(request, "pMentHa/perguntas/multipla-report.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolutionID,  # permite identificar patient e test
+                    "options": options,
+                    "answer": int(answer),
+                    "order": order + 1,
+                    "test": Resolution.objects.get(pk=resolutionID).test.name,
+                    "image": question.cover,
+                    "quotation": question.stimulus
+                })
+            else:
+                return render(request, "pMentHa/perguntas/multipla-report.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolutionID,  # permite identificar patient e test
+                    "options": options,
+                    "answer": int(answer),
+                    "order": order + 1,
+                    "test": Resolution.objects.get(pk=resolutionID).test.name,
+                    "quotation": question.stimulus
+                })
         else:
-            return render(request, "pMentHa/perguntas/desenvolvimento.html", {
-                "question": question,
-                "resolutionID": resolutionID,  # permite identificar patient e test
-                "order": order + 1
-            })
+            if question.cover:
+                return render(request, "pMentHa/perguntas/desenvolvimento-report.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolutionID,  # permite identificar patient e test
+                    "order": order + 1,
+                    "answer": answer,
+                    "image": question.cover,
+                    "test": Resolution.objects.get(pk=resolutionID).test.name,
+                    "quotation": question.stimulus
+                })
+            else:
+                return render(request, "pMentHa/perguntas/desenvolvimento-report.html", {
+                    "question": question,
+                    "min": question.min,
+                    "max": question.max,
+                    "resolutionID": resolutionID,  # permite identificar patient e test
+                    "answer": answer,
+                    "order": order + 1,
+                    "test": Resolution.objects.get(pk=resolutionID).test.name,
+                    "quotation": question.stimulus
+                })
 
 
-
-def fazPrimeiraPergunta(request, testID, patientID):
-    """Esta função é chamada quando na tabela se inicia um teste """
-    #Implementar o test.statement antes da primeira pergunta
-    question = QuestionOrder.objects.get(test=testID, order=1).question
-    options = Option.objects.filter(question=question.id)
-    patientInstance = Patient.objects.get(pk=patientID)
-    testInstance = Test.objects.get(pk=testID)
-    resolution = resolution_exists(patientInstance, testInstance)
-    #alterar o if resolution
-    if resolution:
-        return render(request, "pMentHa/patientoverview-novo.html", {
-            "patients": Patient.objects.all(),
-            "tests": Test.objects.all(),
-            "reports": Report.objects.all(),
-            "testes": criaTabelaTestes()
-        })
+def reportPrevQuestion(request, resolutionID, questionID):
+    testID = Resolution.objects.get(pk=resolutionID).test.id
+    order = QuestionOrder.objects.get(test=testID, question=questionID).order
+    if order > 1:
+        question = QuestionOrder.objects.get(test=testID, order=order - 1).question
+        order = order - 1
     else:
-        resolution = Resolution.objects.create(test=testInstance, patient=patientInstance)
-        addTest(testID, patientID)
-        if question.multipla:
-            return render(request, "pMentHa/perguntas/multipla.html", {
+        # Teste Finalizado, regressar a tabela geral
+        question = QuestionOrder.objects.get(test=testID, order=order).question
+    options = Option.objects.filter(question=question.id)
+    answer = Answer.objects.filter(question=question.id, resolution=resolutionID)
+    if answer:
+        answer = Answer.objects.get(question=question.id, resolution=resolutionID).text
+    if question.multipla:
+        if question.cover:
+            return render(request, "pMentHa/perguntas/multipla-report.html", {
                 "question": question,
-                "resolutionID": resolution.id,  # permite identificar patient e test
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolutionID,  # permite identificar patient e test
                 "options": options,
-                "order": 1
+                "answer": int(answer),
+                "order": order,
+                "test": Resolution.objects.get(pk=resolutionID).test.name,
+                "image": question.cover,
+                "quotation": question.stimulus
             })
         else:
-            return render(request, "pMentHa/perguntas/desenvolvimento.html", {
+            return render(request, "pMentHa/perguntas/multipla-report.html", {
                 "question": question,
-                "resolutionID": resolution.id,  # permite identificar patient e test
-                "order": 1
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolutionID,  # permite identificar patient e test
+                "options": options,
+                "answer": int(answer),
+                "order": order,
+                "test": Resolution.objects.get(pk=resolutionID).test.name,
+                "quotation": question.stimulus
+            })
+
+    else:
+        if question.cover:
+            return render(request, "pMentHa/perguntas/desenvolvimento-report.html", {
+                "question": question,
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolutionID,  # permite identificar patient e test
+                "order": order + 1,
+                "image": question.cover,
+                "test": Resolution.objects.get(pk=resolutionID).test.name,
+                "quotation": question.stimulus
+            })
+        else:
+            return render(request, "pMentHa/perguntas/desenvolvimento-report.html", {
+                "question": question,
+                "min": question.min,
+                "max": question.max,
+                "resolutionID": resolutionID,  # permite identificar patient e test
+                "order": order + 1,
+                "test": Resolution.objects.get(pk=resolutionID).test.name,
+                "quotation": question.stimulus
             })
 
 
-def report(request, testID, patientID):
-    resolutionID = Resolution.objects.get(test=testID, patient=patientID)
-    report = report_exists(resolutionID)
-    question = QuestionOrder.objects.get(test=testID, order=1).question
-    answer = Answer.objects.get(resolution=resolutionID, question=question.id)
-    print(report)
-    return render(request, "pMentHa/report.html", {
-       # "questionsList": questionsAwnsers(resolutionID, testID),
-        "advisor": Test.objects.get(pk=testID).advisor.name,
-        "question": question,
-        "answer": answer
-    })
+def contact(request):
+    if request.method == "POST":
+        contact = Contact.objects.create(email=request.POST["email"],
+                                         contact=request.POST["contact"],
+                                         name=request.POST["name"], birth=request.POST["date"])
+        contact.save()
+        return render(request, 'pMentHa/index.html', {
+        })
+
+    else:
+        return render(request, 'pMentHa/contacts.html', {
+        })
